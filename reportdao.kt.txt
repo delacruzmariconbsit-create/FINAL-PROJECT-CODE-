@@ -1,0 +1,48 @@
+package com.example.campuscare.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+
+@Dao
+interface ReportDao {
+
+    @Insert
+    suspend fun insertReport(report: ReportEntity)
+
+    @Query("""
+        SELECT * FROM reports
+        WHERE userEmail = :userEmail
+        ORDER BY id DESC
+    """)
+    suspend fun getReportsByUser(
+        userEmail: String
+    ): List<ReportEntity>
+
+    @Query("""
+        SELECT * FROM reports
+        WHERE referenceNumber = :referenceNumber
+        LIMIT 1
+    """)
+    suspend fun getReportByReference(
+        referenceNumber: String
+    ): ReportEntity?
+
+    @Query("""
+        SELECT * FROM reports
+        ORDER BY id DESC
+    """)
+    suspend fun getAllReports(): List<ReportEntity>
+
+    @Query("""
+        UPDATE reports
+        SET status = :status,
+            statusHistory = :statusHistory
+        WHERE referenceNumber = :referenceNumber
+    """)
+    suspend fun updateStatus(
+        referenceNumber: String,
+        status: String,
+        statusHistory: String
+    )
+}

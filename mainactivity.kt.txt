@@ -1,0 +1,2801 @@
+package com.example.campuscare
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.widget.ImageView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.example.campuscare.data.CampusCareDatabase
+import com.example.campuscare.data.ReportEntity
+import com.example.campuscare.data.User
+import com.example.campuscare.data.UserDao
+import com.example.campuscare.ui.theme.CampusCareTheme
+import kotlinx.coroutines.launch
+
+// =====================================================
+// REPORT DATA FOR UI
+// =====================================================
+
+data class Report(
+    val referenceNumber: String,
+    val category: String,
+    val location: String,
+    val description: String,
+    val priority: String,
+    val status: String,
+    val statusHistory: String = "SUBMITTED",
+    val photoUri: String = "",
+    val userEmail: String = ""
+)
+
+// =====================================================
+// MAIN ACTIVITY
+// =====================================================
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            CampusCareTheme {
+                CampusCareApp()
+            }
+        }
+    }
+}
+
+// =====================================================
+// CAMPUS CARE APP
+// =====================================================
+
+@Composable
+fun CampusCareApp() {
+
+    val context = LocalContext.current
+
+    val database = remember {
+        CampusCareDatabase.getDatabase(context)
+    }
+
+    val userDao = remember {
+        database.userDao()
+    }
+
+    val reportDao = remember {
+        database.reportDao()
+    }
+
+    val scope = rememberCoroutineScope()
+
+    var currentScreen by remember {
+        mutableStateOf("login")
+    }
+
+    var referenceNumber by remember {
+        mutableStateOf("")
+    }
+
+    var reports by remember {
+        mutableStateOf(listOf<Report>())
+    }
+
+    var selectedReport by remember {
+        mutableStateOf<Report?>(null)
+    }
+
+    var loggedInUser by remember {
+        mutableStateOf<User?>(null)
+    }
+
+    // =================================================
+    // CREATE DEFAULT ADMIN ACCOUNT
+    // =================================================
+
+    LaunchedEffect(Unit) {
+
+        val adminEmail = "admin@campuscare.com"
+
+        val existingAdmin =
+            userDao.checkEmailExists(adminEmail)
+
+        if (existingAdmin == null) {
+
+            userDao.insertUser(
+                User(
+                    fullName = "Campus Care Administrator",
+                    studentId = "ADMIN-001",
+                    email = adminEmail,
+                    password = "admin123",
+                    role = "ADMIN"
+                )
+            )
+        }
+    }
+
+    // =================================================
+    // LOAD STUDENT REPORTS
+    // =================================================
+
+    LaunchedEffect(currentScreen, loggedInUser?.email) {
+
+        if (
+            currentScreen == "myReports" &&
+            loggedInUser?.role == "STUDENT"
+        ) {
+
+            val userEmail = loggedInUser?.email
+
+            if (userEmail != null) {
+
+                val databaseReports =
+                    reportDao.getReportsByUser(userEmail)
+
+                reports = databaseReports.map { entity ->
+
+                    Report(
+                        referenceNumber = entity.referenceNumber,
+                        category = entity.category,
+                        location = entity.location,
+                        description = entity.description,
+                        priority = entity.priority,
+                        status = entity.status,
+                        statusHistory = entity.statusHistory,
+                        photoUri = entity.photoUri,
+                        userEmail = entity.userEmail
+                    )
+                }
+            }
+        }
+
+        // =================================================
+        // LOAD ALL REPORTS FOR ADMIN
+        // =================================================
+
+        if (
+            currentScreen == "adminDashboard" &&
+            loggedInUser?.role == "ADMIN"
+        ) {
+
+            val databaseReports =
+                reportDao.getAllReports()
+
+            reports = databaseReports.map { entity ->
+
+                Report(
+                    referenceNumber = entity.referenceNumber,
+                    category = entity.category,
+                    location = entity.location,
+                    description = entity.description,
+                    priority = entity.priority,
+                    status = entity.status,
+                    statusHistory = entity.statusHistory,
+                    photoUri = entity.photoUri,
+                    userEmail = entity.userEmail
+                )
+            }
+        }
+    }
+
+    // =================================================
+    // NAVIGATION
+    // =================================================
+
+    when (currentScreen) {
+
+        // =================================================
+        // LOGIN
+        // =================================================
+
+        "login" -> {
+
+            LoginScreen(
+                userDao = userDao,
+
+                onLoginSuccess = { user ->
+
+                    loggedInUser = user
+
+                    if (user.role == "ADMIN") {
+
+                        currentScreen = "adminDashboard"
+
+                    } else {
+
+                        currentScreen = "dashboard"
+                    }
+                },
+
+                onRegisterClick = {
+
+                    currentScreen = "register"
+                }
+            )
+        }
+
+        // =================================================
+        // REGISTER
+        // =================================================
+
+        "register" -> {
+
+            RegisterScreen(
+                userDao = userDao,
+
+                onRegistrationSuccess = {
+
+                    currentScreen = "login"
+                },
+
+                onBackToLogin = {
+
+                    currentScreen = "login"
+                }
+            )
+        }
+
+        // =================================================
+        // STUDENT DASHBOARD
+        // =================================================
+
+        "dashboard" -> {
+
+            DashboardScreen(
+                userName =
+                    loggedInUser?.fullName ?: "Student",
+
+                onReportConcernClick = {
+
+                    currentScreen = "report"
+                },
+
+                onMyReportsClick = {
+
+                    currentScreen = "myReports"
+                },
+
+                onLogoutClick = {
+
+                    loggedInUser = null
+                    reports = emptyList()
+                    selectedReport = null
+
+                    currentScreen = "login"
+                }
+            )
+        }
+
+        // =================================================
+        // REPORT CONCERN
+        // =================================================
+
+        "report" -> {
+
+            ReportConcernScreen(
+
+                onBackClick = {
+
+                    currentScreen = "dashboard"
+                },
+
+                onSubmitClick = {
+                        category,
+                        location,
+                        description,
+                        priority,
+                        photoUri ->
+
+                    val userEmail =
+                        loggedInUser?.email
+
+                    if (userEmail != null) {
+
+                        referenceNumber =
+                            "CC-" +
+                                    System.currentTimeMillis()
+                                        .toString()
+                                        .takeLast(6)
+
+                        val newReport =
+                            ReportEntity(
+
+                                referenceNumber =
+                                    referenceNumber,
+
+                                userEmail =
+                                    userEmail,
+
+                                category =
+                                    category,
+
+                                location =
+                                    location,
+
+                                description =
+                                    description,
+
+                                priority =
+                                    priority,
+
+                                status =
+                                    "SUBMITTED",
+
+                                statusHistory =
+                                    "SUBMITTED",
+
+                                photoUri =
+                                    photoUri
+                            )
+
+                        scope.launch {
+
+                            reportDao.insertReport(
+                                newReport
+                            )
+
+                            currentScreen =
+                                "submitted"
+                        }
+                    }
+                }
+            )
+        }
+
+        // =================================================
+        // REPORT SUBMITTED
+        // =================================================
+
+        "submitted" -> {
+
+            ReportSubmittedScreen(
+
+                referenceNumber =
+                    referenceNumber,
+
+                onViewMyReports = {
+
+                    currentScreen =
+                        "myReports"
+                },
+
+                onBackToDashboard = {
+
+                    currentScreen =
+                        "dashboard"
+                }
+            )
+        }
+
+        // =================================================
+        // MY REPORTS
+        // =================================================
+
+        "myReports" -> {
+
+            MyReportsScreen(
+
+                reports = reports,
+
+                onReportClick = { report ->
+
+                    selectedReport =
+                        report
+
+                    currentScreen =
+                        "details"
+                },
+
+                onBackClick = {
+
+                    currentScreen =
+                        "dashboard"
+                }
+            )
+        }
+
+        // =================================================
+        // STUDENT REPORT DETAILS
+        // =================================================
+
+        "details" -> {
+
+            selectedReport?.let { report ->
+
+                ReportDetailsScreen(
+
+                    report = report,
+
+                    onBackClick = {
+
+                        currentScreen =
+                            "myReports"
+                    }
+                )
+            }
+        }
+
+        // =================================================
+        // ADMIN DASHBOARD
+        // =================================================
+
+        "adminDashboard" -> {
+
+            AdminDashboardScreen(
+
+                reports = reports,
+
+                onReportClick = { report ->
+
+                    selectedReport =
+                        report
+
+                    currentScreen =
+                        "adminDetails"
+                },
+
+                onLogoutClick = {
+
+                    loggedInUser = null
+                    reports = emptyList()
+                    selectedReport = null
+
+                    currentScreen =
+                        "login"
+                }
+            )
+        }
+
+        // =================================================
+        // ADMIN REPORT DETAILS
+        // =================================================
+
+        "adminDetails" -> {
+
+            selectedReport?.let { report ->
+
+                AdminReportDetailsScreen(
+
+                    report = report,
+
+                    reportDao = reportDao,
+
+                    onBackClick = {
+
+                        currentScreen =
+                            "adminDashboard"
+                    },
+
+                    onStatusUpdated = {
+
+                        scope.launch {
+
+                            val databaseReports =
+                                reportDao.getAllReports()
+
+                            reports =
+                                databaseReports.map { entity ->
+
+                                    Report(
+                                        referenceNumber =
+                                            entity.referenceNumber,
+
+                                        category =
+                                            entity.category,
+
+                                        location =
+                                            entity.location,
+
+                                        description =
+                                            entity.description,
+
+                                        priority =
+                                            entity.priority,
+
+                                        status =
+                                            entity.status,
+
+                                        photoUri =
+                                            entity.photoUri,
+
+                                        userEmail =
+                                            entity.userEmail
+                                    )
+                                }
+
+                            selectedReport =
+                                reports.find {
+                                    it.referenceNumber ==
+                                            report.referenceNumber
+                                }
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+// =====================================================
+// LOGIN SCREEN
+// =====================================================
+
+@Composable
+fun LoginScreen(
+    userDao: UserDao,
+    onLoginSuccess: (User) -> Unit,
+    onRegisterClick: () -> Unit
+) {
+
+    var email by remember {
+        mutableStateOf("")
+    }
+
+    var password by remember {
+        mutableStateOf("")
+    }
+
+    var errorMessage by remember {
+        mutableStateOf("")
+    }
+
+    var isLoading by remember {
+        mutableStateOf(false)
+    }
+
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+
+        verticalArrangement =
+            Arrangement.Center
+    ) {
+
+        Text(
+            text = "CAMPUS CARE",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text = "Campus Concern Reporting",
+            fontSize = 16.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(40.dp)
+        )
+
+        OutlinedTextField(
+            value = email,
+
+            onValueChange = {
+                email = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Email")
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        OutlinedTextField(
+            value = password,
+
+            onValueChange = {
+                password = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Password")
+            },
+
+            visualTransformation =
+                PasswordVisualTransformation(),
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        if (errorMessage.isNotBlank()) {
+
+            Text(
+                text = errorMessage,
+
+                color =
+                    MaterialTheme.colorScheme.error,
+
+                fontSize = 14.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+        }
+
+        Button(
+            onClick = {
+
+                if (
+                    email.isBlank() ||
+                    password.isBlank()
+                ) {
+
+                    errorMessage =
+                        "Please enter your email and password."
+
+                    return@Button
+                }
+
+                isLoading = true
+                errorMessage = ""
+
+                scope.launch {
+
+                    val user =
+                        userDao.login(
+                            email =
+                                email.trim().lowercase(),
+
+                            password =
+                                password
+                        )
+
+                    isLoading = false
+
+                    if (user != null) {
+
+                        onLoginSuccess(user)
+
+                    } else {
+
+                        errorMessage =
+                            "Invalid email or password."
+                    }
+                }
+            },
+
+            enabled = !isLoading,
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text(
+                if (isLoading) {
+                    "LOGGING IN..."
+                } else {
+                    "LOGIN"
+                }
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onRegisterClick()
+            }
+        ) {
+
+            Text(
+                "Don't have an account? Register"
+            )
+        }
+    }
+}
+
+// =====================================================
+// REGISTER SCREEN
+// =====================================================
+
+@Composable
+fun RegisterScreen(
+    userDao: UserDao,
+    onRegistrationSuccess: () -> Unit,
+    onBackToLogin: () -> Unit
+) {
+
+    var fullName by remember {
+        mutableStateOf("")
+    }
+
+    var studentId by remember {
+        mutableStateOf("")
+    }
+
+    var email by remember {
+        mutableStateOf("")
+    }
+
+    var password by remember {
+        mutableStateOf("")
+    }
+
+    var errorMessage by remember {
+        mutableStateOf("")
+    }
+
+    var isLoading by remember {
+        mutableStateOf(false)
+    }
+
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(24.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+
+        verticalArrangement =
+            Arrangement.Center
+    ) {
+
+        Text(
+            text = "CAMPUS CARE",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text = "Create Account",
+            fontSize = 18.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(28.dp)
+        )
+
+        OutlinedTextField(
+            value = fullName,
+
+            onValueChange = {
+                fullName = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Full Name")
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        OutlinedTextField(
+            value = studentId,
+
+            onValueChange = {
+                studentId = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Student ID")
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        OutlinedTextField(
+            value = email,
+
+            onValueChange = {
+                email = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Email")
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        OutlinedTextField(
+            value = password,
+
+            onValueChange = {
+                password = it
+                errorMessage = ""
+            },
+
+            label = {
+                Text("Password")
+            },
+
+            visualTransformation =
+                PasswordVisualTransformation(),
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        if (errorMessage.isNotBlank()) {
+
+            Text(
+                text = errorMessage,
+
+                color =
+                    MaterialTheme.colorScheme.error,
+
+                fontSize = 14.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+        }
+
+        Button(
+            onClick = {
+
+                if (
+                    fullName.isBlank() ||
+                    studentId.isBlank() ||
+                    email.isBlank() ||
+                    password.isBlank()
+                ) {
+
+                    errorMessage =
+                        "Please complete all fields."
+
+                    return@Button
+                }
+
+                if (!email.contains("@")) {
+
+                    errorMessage =
+                        "Please enter a valid email address."
+
+                    return@Button
+                }
+
+                isLoading = true
+                errorMessage = ""
+
+                scope.launch {
+
+                    val cleanEmail =
+                        email.trim().lowercase()
+
+                    val cleanStudentId =
+                        studentId.trim()
+
+                    val existingEmail =
+                        userDao.checkEmailExists(
+                            cleanEmail
+                        )
+
+                    if (existingEmail != null) {
+
+                        isLoading = false
+
+                        errorMessage =
+                            "This email is already registered."
+
+                        return@launch
+                    }
+
+                    val existingStudentId =
+                        userDao.checkStudentIdExists(
+                            cleanStudentId
+                        )
+
+                    if (existingStudentId != null) {
+
+                        isLoading = false
+
+                        errorMessage =
+                            "This Student ID is already registered."
+
+                        return@launch
+                    }
+
+                    val newUser =
+                        User(
+
+                            fullName =
+                                fullName.trim(),
+
+                            studentId =
+                                cleanStudentId,
+
+                            email =
+                                cleanEmail,
+
+                            password =
+                                password,
+
+                            role =
+                                "STUDENT"
+                        )
+
+                    userDao.insertUser(
+                        newUser
+                    )
+
+                    isLoading = false
+
+                    onRegistrationSuccess()
+                }
+            },
+
+            enabled = !isLoading,
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text(
+                if (isLoading) {
+                    "CREATING ACCOUNT..."
+                } else {
+                    "CREATE ACCOUNT"
+                }
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackToLogin()
+            }
+        ) {
+
+            Text(
+                "Already have an account? Login"
+            )
+        }
+    }
+}
+
+// =====================================================
+// STUDENT DASHBOARD
+// =====================================================
+
+@Composable
+fun DashboardScreen(
+    userName: String,
+    onReportConcernClick: () -> Unit,
+    onMyReportsClick: () -> Unit,
+    onLogoutClick: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+
+        verticalArrangement =
+            Arrangement.Center
+    ) {
+
+        Text(
+            text = "CAMPUS CARE",
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text = "Student Dashboard",
+            fontSize = 18.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        Text(
+            text = "Hello, $userName! 👋",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text = "What would you like to do?"
+        )
+
+        Spacer(
+            modifier = Modifier.height(32.dp)
+        )
+
+        Button(
+            onClick = {
+                onReportConcernClick()
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text("REPORT CONCERN")
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        OutlinedButton(
+            onClick = {
+                onMyReportsClick()
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text("MY REPORTS")
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        OutlinedButton(
+            onClick = {},
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text("ABOUT CAMPUS CARE")
+        }
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onLogoutClick()
+            }
+        ) {
+
+            Text("LOGOUT")
+        }
+    }
+}
+
+// =====================================================
+// REPORT CONCERN
+// =====================================================
+
+@Composable
+fun ReportConcernScreen(
+    onBackClick: () -> Unit,
+
+    onSubmitClick: (
+        String,
+        String,
+        String,
+        String,
+        String
+    ) -> Unit
+) {
+
+    var selectedCategory by remember {
+        mutableStateOf("")
+    }
+
+    var location by remember {
+        mutableStateOf("")
+    }
+
+    var description by remember {
+        mutableStateOf("")
+    }
+
+    var selectedPriority by remember {
+        mutableStateOf("")
+    }
+
+    var selectedPhotoUri by remember {
+        mutableStateOf<Uri?>(null)
+    }
+
+    var categoryExpanded by remember {
+        mutableStateOf(false)
+    }
+
+    var priorityExpanded by remember {
+        mutableStateOf(false)
+    }
+
+    var showError by remember {
+        mutableStateOf(false)
+    }
+
+    val context = LocalContext.current
+
+    val categories = listOf(
+        "Facility Issues",
+        "Cleanliness",
+        "Internet Problems",
+        "Electrical Concerns",
+        "Safety and Security"
+    )
+
+    val priorities = listOf(
+        "Low",
+        "Medium",
+        "High"
+    )
+
+    val photoPickerLauncher =
+        rememberLauncherForActivityResult(
+            contract =
+                ActivityResultContracts.OpenDocument()
+        ) { uri: Uri? ->
+
+            if (uri != null) {
+
+                try {
+
+                    context.contentResolver
+                        .takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+
+                } catch (_: Exception) {
+                }
+
+                selectedPhotoUri = uri
+            }
+        }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(16.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "REPORT CONCERN",
+            fontSize = 26.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text =
+                "Tell us about the campus problem."
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        Text(
+            text = "Category",
+            modifier =
+                Modifier.fillMaxWidth(),
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        Box(
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            OutlinedTextField(
+                value =
+                    selectedCategory,
+
+                onValueChange = {},
+
+                readOnly = true,
+
+                placeholder = {
+                    Text("Select Category")
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            )
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable {
+                        categoryExpanded = true
+                    }
+            )
+        }
+
+        DropdownMenu(
+            expanded =
+                categoryExpanded,
+
+            onDismissRequest = {
+                categoryExpanded = false
+            }
+        ) {
+
+            categories.forEach { category ->
+
+                DropdownMenuItem(
+
+                    text = {
+                        Text(category)
+                    },
+
+                    onClick = {
+
+                        selectedCategory =
+                            category
+
+                        categoryExpanded =
+                            false
+
+                        showError =
+                            false
+                    }
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Text(
+            text = "Location",
+            modifier =
+                Modifier.fillMaxWidth(),
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        OutlinedTextField(
+            value =
+                location,
+
+            onValueChange = {
+                location = it
+                showError = false
+            },
+
+            placeholder = {
+                Text("Building / Room")
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Text(
+            text = "Description",
+            modifier =
+                Modifier.fillMaxWidth(),
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        OutlinedTextField(
+            value =
+                description,
+
+            onValueChange = {
+                description = it
+                showError = false
+            },
+
+            placeholder = {
+                Text("Describe the concern")
+            },
+
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Text(
+            text = "Priority",
+            modifier =
+                Modifier.fillMaxWidth(),
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        Box(
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            OutlinedTextField(
+                value =
+                    selectedPriority,
+
+                onValueChange = {},
+
+                readOnly = true,
+
+                placeholder = {
+                    Text("Select Priority")
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            )
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable {
+                        priorityExpanded =
+                            true
+                    }
+            )
+        }
+
+        DropdownMenu(
+            expanded =
+                priorityExpanded,
+
+            onDismissRequest = {
+                priorityExpanded =
+                    false
+            }
+        ) {
+
+            priorities.forEach { priority ->
+
+                DropdownMenuItem(
+
+                    text = {
+                        Text(priority)
+                    },
+
+                    onClick = {
+
+                        selectedPriority =
+                            priority
+
+                        priorityExpanded =
+                            false
+
+                        showError =
+                            false
+                    }
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+
+        if (selectedPhotoUri == null) {
+
+            OutlinedButton(
+                onClick = {
+
+                    photoPickerLauncher.launch(
+                        arrayOf("image/*")
+                    )
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            ) {
+
+                Text(
+                    "ADD PHOTO (OPTIONAL)"
+                )
+            }
+
+        } else {
+
+            Text(
+                text = "Selected Photo",
+                modifier =
+                    Modifier.fillMaxWidth(),
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            AndroidView(
+                factory = { context ->
+
+                    ImageView(context).apply {
+
+                        scaleType =
+                            ImageView.ScaleType.CENTER_CROP
+                    }
+                },
+
+                update = { imageView ->
+
+                    imageView.setImageURI(
+                        selectedPhotoUri
+                    )
+                },
+
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            OutlinedButton(
+                onClick = {
+
+                    selectedPhotoUri =
+                        null
+                },
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            ) {
+
+                Text("REMOVE PHOTO")
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        if (showError) {
+
+            Text(
+                text =
+                    "Please complete all required fields.",
+
+                color =
+                    MaterialTheme.colorScheme.error,
+
+                fontSize = 14.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+        }
+
+        Button(
+            onClick = {
+
+                if (
+                    selectedCategory.isNotBlank() &&
+                    location.isNotBlank() &&
+                    description.isNotBlank() &&
+                    selectedPriority.isNotBlank()
+                ) {
+
+                    showError = false
+
+                    onSubmitClick(
+                        selectedCategory,
+                        location,
+                        description,
+                        selectedPriority,
+                        selectedPhotoUri?.toString()
+                            ?: ""
+                    )
+
+                } else {
+
+                    showError = true
+                }
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text("SUBMIT REPORT")
+        }
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackClick()
+            }
+        ) {
+
+            Text("← Back to Dashboard")
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+    }
+}
+
+// =====================================================
+// REPORT SUBMITTED
+// =====================================================
+
+@Composable
+fun ReportSubmittedScreen(
+    referenceNumber: String,
+    onViewMyReports: () -> Unit,
+    onBackToDashboard: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally,
+
+        verticalArrangement =
+            Arrangement.Center
+    ) {
+
+        Text(
+            text =
+                "REPORT SUBMITTED! ✓",
+
+            fontSize = 26.sp,
+
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Text(
+            text =
+                "Your concern has been successfully submitted.",
+
+            fontSize = 16.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(32.dp)
+        )
+
+        Text(
+            text = "Reference Number",
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        OutlinedTextField(
+            value =
+                referenceNumber,
+
+            onValueChange = {},
+
+            readOnly = true,
+
+            modifier =
+                Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Text(
+            text =
+                "Please save this number for tracking your report.",
+
+            fontSize = 14.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(32.dp)
+        )
+
+        Button(
+            onClick = {
+                onViewMyReports()
+            },
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text("VIEW MY REPORTS")
+        }
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackToDashboard()
+            }
+        ) {
+
+            Text("Back to Dashboard")
+        }
+    }
+}
+
+// =====================================================
+// MY REPORTS
+// =====================================================
+
+@Composable
+fun MyReportsScreen(
+    reports: List<Report>,
+    onReportClick: (Report) -> Unit,
+    onBackClick: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(16.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "MY REPORTS",
+            fontSize = 28.sp,
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text =
+                "Your submitted campus concerns"
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        if (reports.isEmpty()) {
+
+            Text(
+                text =
+                    "You have no submitted reports yet.",
+                fontSize = 16.sp
+            )
+
+        } else {
+
+            reports.forEach { report ->
+
+                ReportCard(
+                    report = report,
+
+                    onClick = {
+                        onReportClick(report)
+                    }
+                )
+
+                Spacer(
+                    modifier = Modifier.height(16.dp)
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackClick()
+            }
+        ) {
+
+            Text("← Back to Dashboard")
+        }
+    }
+}
+
+// =====================================================
+// REPORT CARD
+// =====================================================
+
+@Composable
+fun ReportCard(
+    report: Report,
+    onClick: () -> Unit
+) {
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                onClick()
+            }
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(20.dp)
+        ) {
+
+            Text(
+                text =
+                    report.referenceNumber,
+
+                fontSize = 18.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            Text(
+                text =
+                    "Category: ${report.category}",
+
+                fontSize = 15.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Location: ${report.location}",
+
+                fontSize = 15.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(10.dp)
+            )
+
+            Text(
+                text =
+                    "Priority: ${report.priority}",
+
+                fontSize = 15.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Status: ${report.status}",
+
+                fontSize = 15.sp,
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                color =
+                    MaterialTheme.colorScheme.primary
+            )
+
+            if (
+                report.photoUri.isNotBlank()
+            ) {
+
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                Text(
+                    text =
+                        "📷 Photo attached",
+
+                    fontSize = 13.sp
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.height(12.dp)
+            )
+
+            Text(
+                text =
+                    "Tap to view details",
+
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+// =====================================================
+// STUDENT REPORT DETAILS
+// =====================================================
+
+@Composable
+fun ReportDetailsScreen(
+    report: Report,
+    onBackClick: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(16.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "REPORT DETAILS",
+            fontSize = 26.sp,
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        DetailField(
+            label = "Reference Number",
+            value = report.referenceNumber
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        DetailField(
+            label = "Category",
+            value = report.category
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        DetailField(
+            label = "Location",
+            value = report.location
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        DetailField(
+            label = "Description",
+            value = report.description,
+            height = 120
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        DetailField(
+            label = "Priority",
+            value = report.priority
+        )
+
+        if (
+            report.photoUri.isNotBlank()
+        ) {
+
+            Spacer(
+                modifier = Modifier.height(20.dp)
+            )
+
+            Text(
+                text = "Attached Photo",
+                fontWeight =
+                    FontWeight.Bold,
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            AndroidView(
+                factory = { context ->
+
+                    ImageView(context).apply {
+
+                        scaleType =
+                            ImageView.ScaleType.CENTER_CROP
+                    }
+                },
+
+                update = { imageView ->
+
+                    imageView.setImageURI(
+                        Uri.parse(
+                            report.photoUri
+                        )
+                    )
+                },
+
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        Text(
+            text = "STATUS HISTORY",
+            fontWeight =
+                FontWeight.Bold,
+
+            fontSize = 18.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        StatusTimeline(
+            statusHistory = report.statusHistory
+        )
+
+        Spacer(
+            modifier = Modifier.height(32.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackClick()
+            }
+        ) {
+
+            Text(
+                "← Back to My Reports"
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+    }
+}
+
+// =====================================================
+// STATUS TIMELINE
+// =====================================================
+
+@Composable
+fun StatusTimeline(
+    statusHistory: String
+) {
+
+    val history = statusHistory
+        .split("|")
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+
+            history.forEachIndexed { index, status ->
+
+                val isLast = index == history.lastIndex
+
+                Text(
+                    text = if (isLast) {
+                        "● $status"
+                    } else {
+                        "✓ $status"
+                    },
+                    fontSize = 16.sp,
+                    fontWeight = if (isLast) {
+                        FontWeight.Bold
+                    } else {
+                        FontWeight.Normal
+                    },
+                    color = if (isLast) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
+                )
+
+                if (!isLast) {
+                    Text(
+                        text = "      ↓",
+                        fontSize = 16.sp
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// =====================================================
+// DETAIL FIELD
+// =====================================================
+
+@Composable
+fun DetailField(
+    label: String,
+    value: String,
+    height: Int = 56
+) {
+
+    Text(
+        text = label,
+
+        fontWeight =
+            FontWeight.Bold,
+
+        modifier =
+            Modifier.fillMaxWidth()
+    )
+
+    Spacer(
+        modifier = Modifier.height(6.dp)
+    )
+
+    OutlinedTextField(
+        value = value,
+
+        onValueChange = {},
+
+        readOnly = true,
+
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height.dp)
+    )
+}
+
+// =====================================================
+// ADMIN DASHBOARD
+// =====================================================
+
+@Composable
+fun AdminDashboardScreen(
+    reports: List<Report>,
+    onReportClick: (Report) -> Unit,
+    onLogoutClick: () -> Unit
+) {
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(16.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "CAMPUS CARE",
+            fontSize = 28.sp,
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(6.dp)
+        )
+
+        Text(
+            text = "Admin Dashboard",
+            fontSize = 18.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            text = "Campus Concern Management",
+            fontSize = 14.sp
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        Text(
+            text =
+                "Total Reports: ${reports.size}",
+
+            fontSize = 18.sp,
+
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+
+        if (reports.isEmpty()) {
+
+            Text(
+                text =
+                    "No reports have been submitted yet.",
+
+                fontSize = 16.sp
+            )
+
+        } else {
+
+            reports.forEach { report ->
+
+                AdminReportCard(
+                    report = report,
+
+                    onClick = {
+                        onReportClick(report)
+                    }
+                )
+
+                Spacer(
+                    modifier = Modifier.height(14.dp)
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onLogoutClick()
+            }
+        ) {
+
+            Text("LOGOUT")
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+    }
+}
+
+// =====================================================
+// ADMIN REPORT CARD
+// =====================================================
+
+@Composable
+fun AdminReportCard(
+    report: Report,
+    onClick: () -> Unit
+) {
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                onClick()
+            }
+    ) {
+
+        Column(
+            modifier =
+                Modifier.padding(18.dp)
+        ) {
+
+            Text(
+                text =
+                    report.referenceNumber,
+
+                fontSize = 18.sp,
+
+                fontWeight =
+                    FontWeight.Bold
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            Text(
+                text =
+                    "Student: ${report.userEmail}",
+
+                fontSize = 14.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Category: ${report.category}",
+
+                fontSize = 14.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Location: ${report.location}",
+
+                fontSize = 14.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Priority: ${report.priority}",
+
+                fontSize = 14.sp
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Text(
+                text =
+                    "Status: ${report.status}",
+
+                fontSize = 15.sp,
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                color =
+                    MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(
+                modifier = Modifier.height(10.dp)
+            )
+
+            Text(
+                text =
+                    "Tap to manage report",
+
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+// =====================================================
+// ADMIN REPORT DETAILS
+// =====================================================
+
+@Composable
+fun AdminReportDetailsScreen(
+    report: Report,
+    reportDao: com.example.campuscare.data.ReportDao,
+    onBackClick: () -> Unit,
+    onStatusUpdated: () -> Unit
+) {
+
+    var selectedStatus by remember(
+        report.referenceNumber,
+        report.status
+    ) {
+        mutableStateOf(report.status)
+    }
+
+    var statusExpanded by remember {
+        mutableStateOf(false)
+    }
+
+    var isUpdating by remember {
+        mutableStateOf(false)
+    }
+
+    val scope = rememberCoroutineScope()
+
+    val statuses = listOf(
+        "SUBMITTED",
+        "UNDER REVIEW",
+        "IN PROGRESS",
+        "RESOLVED",
+        "REJECTED"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(
+                rememberScrollState()
+            )
+            .padding(16.dp),
+
+        horizontalAlignment =
+            Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "ADMIN - REPORT DETAILS",
+            fontSize = 24.sp,
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        DetailField(
+            label = "Reference Number",
+            value =
+                report.referenceNumber
+        )
+
+        Spacer(
+            modifier = Modifier.height(14.dp)
+        )
+
+        DetailField(
+            label = "Student Email",
+            value =
+                report.userEmail
+        )
+
+        Spacer(
+            modifier = Modifier.height(14.dp)
+        )
+
+        DetailField(
+            label = "Category",
+            value =
+                report.category
+        )
+
+        Spacer(
+            modifier = Modifier.height(14.dp)
+        )
+
+        DetailField(
+            label = "Location",
+            value =
+                report.location
+        )
+
+        Spacer(
+            modifier = Modifier.height(14.dp)
+        )
+
+        DetailField(
+            label = "Description",
+            value =
+                report.description,
+            height = 120
+        )
+
+        Spacer(
+            modifier = Modifier.height(14.dp)
+        )
+
+        DetailField(
+            label = "Priority",
+            value =
+                report.priority
+        )
+
+        // =================================================
+        // PHOTO
+        // =================================================
+
+        if (
+            report.photoUri.isNotBlank()
+        ) {
+
+            Spacer(
+                modifier = Modifier.height(20.dp)
+            )
+
+            Text(
+                text = "Attached Photo",
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            AndroidView(
+                factory = { context ->
+
+                    ImageView(context).apply {
+
+                        scaleType =
+                            ImageView.ScaleType.CENTER_CROP
+                    }
+                },
+
+                update = { imageView ->
+
+                    imageView.setImageURI(
+                        Uri.parse(
+                            report.photoUri
+                        )
+                    )
+                },
+
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        Text(
+            text = "STATUS HISTORY",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        StatusTimeline(
+            statusHistory = report.statusHistory
+        )
+
+        Spacer(
+            modifier = Modifier.height(24.dp)
+        )
+
+        Text(
+            text = "UPDATE STATUS",
+
+            fontSize = 18.sp,
+
+            fontWeight =
+                FontWeight.Bold
+        )
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        // =================================================
+        // STATUS DROPDOWN
+        // =================================================
+
+        Box(
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            OutlinedTextField(
+                value =
+                    selectedStatus,
+
+                onValueChange = {},
+
+                readOnly = true,
+
+                modifier =
+                    Modifier.fillMaxWidth()
+            )
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable {
+                        statusExpanded = true
+                    }
+            )
+        }
+
+        DropdownMenu(
+            expanded =
+                statusExpanded,
+
+            onDismissRequest = {
+                statusExpanded =
+                    false
+            }
+        ) {
+
+            statuses.forEach { status ->
+
+                DropdownMenuItem(
+
+                    text = {
+                        Text(status)
+                    },
+
+                    onClick = {
+
+                        selectedStatus =
+                            status
+
+                        statusExpanded =
+                            false
+                    }
+                )
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        Button(
+            onClick = {
+
+                isUpdating = true
+
+                scope.launch {
+
+                    val history =
+                        report.statusHistory
+                            .split("|")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .toMutableList()
+
+                    if (history.isEmpty()) {
+                        history.add("SUBMITTED")
+                    }
+
+                    if (history.last() != selectedStatus) {
+                        history.add(selectedStatus)
+                    }
+
+                    val updatedHistory =
+                        history.joinToString("|")
+
+                    reportDao.updateStatus(
+                        referenceNumber =
+                            report.referenceNumber,
+
+                        status =
+                            selectedStatus,
+
+                        statusHistory =
+                            updatedHistory
+                    )
+
+                    isUpdating = false
+
+                    onStatusUpdated()
+                }
+            },
+
+            enabled =
+                !isUpdating,
+
+            modifier =
+                Modifier.fillMaxWidth()
+        ) {
+
+            Text(
+                if (isUpdating) {
+                    "UPDATING..."
+                } else {
+                    "UPDATE STATUS"
+                }
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(12.dp)
+        )
+
+        TextButton(
+            onClick = {
+                onBackClick()
+            }
+        ) {
+
+            Text(
+                "← Back to Admin Dashboard"
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.height(20.dp)
+        )
+    }
+}

@@ -1,0 +1,68 @@
+package com.example.campuscare.data
+
+import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+
+@Database(
+    entities = [
+        User::class,
+        ReportEntity::class
+    ],
+    version = 3,
+    exportSchema = false
+)
+abstract class CampusCareDatabase : RoomDatabase() {
+
+    abstract fun userDao(): UserDao
+
+    abstract fun reportDao(): ReportDao
+
+    companion object {
+
+        @Volatile
+        private var INSTANCE: CampusCareDatabase? = null
+
+        fun getDatabase(context: Context): CampusCareDatabase {
+
+            return INSTANCE ?: synchronized(this) {
+
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    CampusCareDatabase::class.java,
+                    "campus_care_database"
+                )
+                    .fallbackToDestructiveMigration()
+                    .addCallback(object : RoomDatabase.Callback() {
+
+                        override fun onCreate(
+                            db: androidx.sqlite.db.SupportSQLiteDatabase
+                        ) {
+                            super.onCreate(db)
+
+                            db.execSQL(
+                                """
+                                INSERT INTO users
+                                (fullName, studentId, email, password, role)
+                                VALUES
+                                (
+                                    'Campus Care Admin',
+                                    'ADMIN001',
+                                    'admin@campuscare.com',
+                                    'admin123',
+                                    'ADMIN'
+                                )
+                                """.trimIndent()
+                            )
+                        }
+                    })
+                    .build()
+
+                INSTANCE = instance
+
+                instance
+            }
+        }
+    }
+}
